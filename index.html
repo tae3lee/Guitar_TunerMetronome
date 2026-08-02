@@ -645,7 +645,7 @@
   // more sensitive also means it follows changes faster.
   var SENS = {
     high: { rms: 0.00030, clarity: 0.20, ema: 0.24, median: 7  },  // 가장 민감 + 빠름
-    mid:  { rms: 0.00080, clarity: 0.28, ema: 0.14, median: 9  },  // 예전 '높음'
+    mid:  { rms: 0.00050, clarity: 0.24, ema: 0.14, median: 9  },  // 예전 '높음'보다 조금 더
     low:  { rms: 0.00200, clarity: 0.38, ema: 0.10, median: 11 },  // 예전 '보통'
   };
   var sens = SENS.mid;
@@ -1021,14 +1021,16 @@
   var HOLD_MS = 600;    // carry the last value through brief dropouts
   var lastSampleT = 0;
 
-  // A glitch can land on a completely different NOTE, which would otherwise
-  // slip past the cents filter and wipe the whole line. So a new note has to
-  // persist too before we believe the player actually changed strings.
-  // ~200ms. A knock on the body or a pick-attack transient reads as a bogus
-  // note for only 4-5 frames; a string you actually plucked rings for seconds.
-  // At 4 frames the glitches were clearing the trace, so duration is what
-  // separates them.
-  var NOTE_CONFIRM = 12;
+  // Switching to another string used to require 12 CONSECUTIVE frames of the
+  // new note. A low string's attack is rich in harmonics, so the detector
+  // flickers between the note and its overtones for the first few frames —
+  // the counter kept resetting, so the 5th/6th strings took ~600ms to register
+  // or never did. A majority vote over a short window tolerates that flicker
+  // while still rejecting a brief glitch (which can't win the majority).
+  var NOTE_WIN = 19;      // frames considered
+  var NOTE_VOTES = 9;     // agreeing frames needed to switch (swept: blocks
+                          // every glitch up to 9 frames, real switch ~184ms)
+  var noteHist = [];
   var pendingMidi = null, pendingRun = 0;
 
   var diag = { noteChanges: [], spikesDropped: 0, notePending: 0 };
@@ -1230,7 +1232,13 @@
     elLevelFill.style.width = (levelPeak * 100).toFixed(1) + "%";
 
     var now = performance.now();
-    var got = (res.freq > 0 && res.clarity > sens.clarity);
+    // Fewer cycles of a low note fit in the analysis window, so its clarity
+    // reads lower for the same signal quality. A flat gate therefore rejects
+    // the 5th/6th strings while letting the treble strings through.
+    var gate = sens.clarity;
+    if (res.freq > 0 && res.freq < 130) gate *= 0.72;
+    else if (res.freq > 0 && res.freq < 200) gate *= 0.85;
+    var got = (res.freq > 0 && res.clarity > gate);
     var tMidi = null, rawCents = 0;
 
     if (got) {
@@ -1251,26 +1259,27 @@
       // A different note means a different axis, so the line has to restart —
       // but only once we're sure it's a real string change, not a one-frame
       // misread. Without this a single glitch erased the whole trace.
+      noteHist.push(tMidi);
+      if (noteHist.length > NOTE_WIN) noteHist.shift();
+
       if (targetMidi === null) {
         targetMidi = tMidi;
         clearTrace();
-        pendingMidi = null; pendingRun = 0;
       } else if (tMidi !== targetMidi) {
-        if (pendingMidi === tMidi) pendingRun++;
-        else { pendingMidi = tMidi; pendingRun = 1; }
-
-        if (pendingRun >= NOTE_CONFIRM) {
-          diag.noteChanges.push({ from: targetMidi, to: tMidi, clarity: +res.clarity.toFixed(2), t: Math.round(now) });
+        var votesNew = 0, votesCur = 0;
+        for (var vi = 0; vi < noteHist.length; vi++) {
+          if (noteHist[vi] === tMidi) votesNew++;
+          else if (noteHist[vi] === targetMidi) votesCur++;
+        }
+        if (votesNew >= NOTE_VOTES && votesNew > votesCur) {
+          diag.noteChanges.push({ from: targetMidi, to: tMidi, votes: votesNew, t: Math.round(now) });
           if (diag.noteChanges.length > 20) diag.noteChanges.shift();
           targetMidi = tMidi;
           clearTrace();
-          pendingMidi = null; pendingRun = 0;
         } else {
           diag.notePending++;
-          got = false;   // ignore this frame — don't plot it, don't reset
+          got = false;   // not convinced yet — don't plot, don't reset
         }
-      } else {
-        pendingMidi = null; pendingRun = 0;
       }
     }
 
@@ -1472,9 +1481,12 @@
     } else if (id === "tom") {
       toneVoice(ctx, t, "sine", 240, 110, 1.05 * v, 0.22);
     } else if (id === "tick") {
+      // Clean pitched blip — no noise layer, almost no pitch drop, short decay.
+      // Reads bright and light instead of woody/thuddy.
       var hi = v >= 0.95;
-      toneVoice(ctx, t, "triangle", hi ? 3000 : 2100, hi ? 1500 : 1050, 1.05 * v, 0.030);
-      noiseVoice(ctx, t, "bandpass", hi ? 2600 : 1900, 2.5, 0.30 * v, 0.016);
+      var f = hi ? 3000 : 2000;
+      toneVoice(ctx, t, "sine", f, f * 0.92, 1.15 * v, 0.020);
+      toneVoice(ctx, t, "sine", f * 2.02, f * 1.92, 0.34 * v, 0.011);
     } else if (id === "cym") {
       // bright body + a longer, darker tail
       noiseVoice(ctx, t, "highpass", 4000, 0, 0.50 * v, 1.10);
