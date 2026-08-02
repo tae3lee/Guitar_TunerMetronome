@@ -206,11 +206,11 @@
   }
   .dhead.accent { color: var(--text); font-weight: 700; }
 
-  .preset-row { display: flex; gap: 8px; margin-top: 9px; }
+  .preset-row { display: flex; gap: 6px; margin-top: 9px; }
   .preset-btn {
     flex: 1; background: var(--card-2); border: 1px solid var(--border);
-    color: var(--text); border-radius: 10px; padding: 8px 4px;
-    font-size: 12px; font-weight: 700; cursor: pointer;
+    color: var(--text); border-radius: 10px; padding: 8px 2px;
+    font-size: 11.5px; font-weight: 700; cursor: pointer; white-space: nowrap;
   }
   .preset-btn:active { background: #2C3140; }
 
@@ -366,9 +366,9 @@
         <span class="label-sm" style="white-space:nowrap;">입력 감도</span>
         <div class="level-track"><div class="level-fill" id="level-fill"></div></div>
         <select id="sens-select">
-          <option value="high">높음</option>
+          <option value="high">높음 (아주 민감)</option>
           <option value="mid" selected>보통</option>
-          <option value="low">낮음</option>
+          <option value="low">낮음 (안정)</option>
         </select>
       </div>
       <div class="row-between" style="margin-top:12px;">
@@ -401,6 +401,7 @@
       <div class="preset-row">
         <button class="preset-btn" data-preset="rock">기본 비트</button>
         <button class="preset-btn" data-preset="click">클릭만</button>
+        <button class="preset-btn" data-preset="tick">틱톡</button>
         <button class="preset-btn" data-preset="clear">지우기</button>
       </div>
     </div>
@@ -427,7 +428,7 @@
     <div class="card">
       <div class="vol-row">
         <span class="vol-icon">🔈</span>
-        <input type="range" id="vol-range" class="vol-range" min="0" max="100" value="85" step="1" />
+        <input type="range" id="vol-range" class="vol-range" min="0" max="100" value="90" step="1" />
         <span class="vol-val" id="vol-val">85%</span>
       </div>
       <div class="opt-row" style="margin-top:10px;">
@@ -490,43 +491,73 @@
   // Output chain. A plain gain boost would clip and sound nasty, so the
   // master gain feeds a limiter — that lets the slider push well past unity
   // (up to ~3x) while peaks stay controlled.
-  var masterGain = null, limiter = null;
-  var volumePct = 85;
+  var masterGain = null, limiter = null, makeupGain = null, shaper = null, outGain = null;
+  var volumePct = 90;
   try {
     var savedVol = localStorage.getItem("metro.volume");
     if (savedVol !== null) volumePct = Math.max(0, Math.min(100, Number(savedVol)));
   } catch (e) {}
 
-  // Ceiling picked by measurement, not by feel: rendered offline and compared
-  // against the previous build after clamping to +/-1 like the real output.
-  // 4.5x drive into the limiter = ~1.8x the old perceived loudness with
-  // ~0.04% of samples clipped (inaudible).
+  // A linear-amplitude slider wastes its top half: past the limiter threshold
+  // everything sounds the same (30-100% was barely distinguishable). Volume is
+  // perceived in dB, so the slider maps to dB — every 10% is the same
+  // perceived step.
+  // Loudness processing is FIXED; the slider is a clean gain AFTER it.
+  // Previously the slider fed the saturator, so its top half was being
+  // squashed by the very processing it was driving — which is why 50-100%
+  // all sounded the same. Post-saturation the control is linear in dB.
+  var DRIVE = 30.0, MAKEUP = 14.0, SHAPE_K = 5.0;
+  var VOL_MIN_DB = -40, VOL_MAX_DB = 0;
   function volumeToGain(pct) {
     var x = Math.max(0, Math.min(100, pct)) / 100;
-    return 4.5 * Math.pow(x, 1.4);       // 100% -> 4.5, 85% -> 3.6, 50% -> 1.7
+    if (x <= 0) return 0;
+    return Math.pow(10, (VOL_MIN_DB + (VOL_MAX_DB - VOL_MIN_DB) * x) / 20);
+  }
+
+  // Gentle saturation instead of hard digital clipping. Squares off the very
+  // top of a transient rather than chopping it, which is what lets the average
+  // level rise without the sound turning gritty.
+  function softClipCurve(k) {
+    var n = 2048, c = new Float32Array(n), d = Math.tanh(k);
+    for (var i = 0; i < n; i++) {
+      var x = (i / (n - 1)) * 2 - 1;
+      c[i] = Math.tanh(k * x) / d;
+    }
+    return c;
   }
 
   function audioOut(ctx) {
     if (!ctx) return null;
     if (!masterGain || masterGain.context !== ctx) {
+      // drive -> compressor -> makeup -> soft clip -> speakers
       masterGain = ctx.createGain();
+      masterGain.gain.value = DRIVE;       // fixed — not the user control
       limiter = ctx.createDynamicsCompressor();
-      limiter.threshold.setValueAtTime(-4, ctx.currentTime);
-      limiter.knee.setValueAtTime(2, ctx.currentTime);
-      limiter.ratio.setValueAtTime(20, ctx.currentTime);
-      limiter.attack.setValueAtTime(0.001, ctx.currentTime);
-      limiter.release.setValueAtTime(0.05, ctx.currentTime);
+      limiter.threshold.setValueAtTime(-20, ctx.currentTime);
+      limiter.knee.setValueAtTime(6, ctx.currentTime);
+      limiter.ratio.setValueAtTime(12, ctx.currentTime);
+      limiter.attack.setValueAtTime(0.003, ctx.currentTime);
+      limiter.release.setValueAtTime(0.15, ctx.currentTime);
+      makeupGain = ctx.createGain();
+      makeupGain.gain.value = MAKEUP;
+      shaper = ctx.createWaveShaper();
+      shaper.curve = softClipCurve(SHAPE_K);
+      shaper.oversample = "2x";
+      outGain = ctx.createGain();
+      outGain.gain.value = volumeToGain(volumePct);   // <- the slider
       masterGain.connect(limiter);
-      limiter.connect(ctx.destination);
-      masterGain.gain.value = volumeToGain(volumePct);
+      limiter.connect(makeupGain);
+      makeupGain.connect(shaper);
+      shaper.connect(outGain);
+      outGain.connect(ctx.destination);
     }
     return masterGain;
   }
 
   function setVolume(pct) {
     volumePct = Math.max(0, Math.min(100, Math.round(pct)));
-    if (masterGain && audioCtx) {
-      masterGain.gain.setTargetAtTime(volumeToGain(volumePct), audioCtx.currentTime, 0.01);
+    if (outGain && audioCtx) {
+      outGain.gain.setTargetAtTime(volumeToGain(volumePct), audioCtx.currentTime, 0.01);
     }
     try { localStorage.setItem("metro.volume", String(volumePct)); } catch (e) {}
     return volumePct;
@@ -609,10 +640,13 @@
   // PITCH DETECTION (two-stage: decimated coarse + full-rate refine)
   // =====================================================
   var MIN_HZ = 60, MAX_HZ = 1400, DECIM = 4;
+  // Scale shifted up one notch: what used to be "높음" is now "보통", and the
+  // new "높음" goes further still. Response speed rides the same control —
+  // more sensitive also means it follows changes faster.
   var SENS = {
-    high: { rms: 0.0008, clarity: 0.28 },
-    mid:  { rms: 0.0020, clarity: 0.38 },
-    low:  { rms: 0.0060, clarity: 0.50 },
+    high: { rms: 0.00030, clarity: 0.20, ema: 0.24, median: 7  },  // 가장 민감 + 빠름
+    mid:  { rms: 0.00080, clarity: 0.28, ema: 0.14, median: 9  },  // 예전 '높음'
+    low:  { rms: 0.00200, clarity: 0.38, ema: 0.10, median: 11 },  // 예전 '보통'
   };
   var sens = SENS.mid;
 
@@ -865,6 +899,7 @@
 
   elSens.addEventListener("change", function () {
     sens = SENS[elSens.value] || SENS.mid;
+    trace.reset();            // new smoothing settings, fresh start
     showToast("입력 감도: " + elSens.options[elSens.selectedIndex].text);
   });
   elA4.addEventListener("change", function () {
@@ -941,11 +976,10 @@
   //    which is what a real string change looks like.
   //  · small jitter is caught by a median filter. Median, not average:
   //    averaging smears a spike into its neighbours, median deletes it.
-  var MEDIAN_N = 9;       // wider window = steadier reading
   var JUMP_LIMIT = 45;    // cents — anything bigger is treated as a glitch first
   var JUMP_CONFIRM = 3;   // frames a big move must persist to be believed
-  var EMA = 0.14;         // lower = smoother (was 0.25); tuned so the needle
-                          // stops dancing while still settling in ~0.3s
+  function medianN() { return sens.median || 9; }
+  function emaBase() { return sens.ema || 0.14; }
 
   function median(arr) {
     var s = arr.slice().sort(function (a, b) { return a - b; });
@@ -964,7 +998,8 @@
       } else this.jumpRun = 0;
 
       this.hist.push(cents);
-      if (this.hist.length > MEDIAN_N) this.hist.shift();
+      var cap = medianN();
+      while (this.hist.length > cap) this.hist.shift();
       var med = median(this.hist);
       if (!this.init) { this.smooth = med; this.init = true; }
       else {
@@ -973,7 +1008,8 @@
         // genuinely far away keeps the needle rock-steady on a held note while
         // still following the peg as you turn it.
         var diff = Math.abs(med - this.smooth);
-        var alpha = diff > 15 ? 0.50 : (diff > 6 ? 0.26 : EMA);
+        var base = emaBase();
+        var alpha = diff > 15 ? 0.50 : (diff > 6 ? Math.max(0.26, base * 1.8) : base);
         this.smooth = this.smooth * (1 - alpha) + med * alpha;
       }
       return this.smooth;
@@ -1377,6 +1413,7 @@
     { id: "tom",   name: "탐",     color: "#A78BFA" },
     { id: "clap",  name: "클랩",   color: "#F472B6" },
     { id: "cym",   name: "심벌",   color: "#4ADE80" },
+    { id: "tick",  name: "틱",     color: "#E879F9" },
   ];
 
   var bpm = 90, beatsPerBar = 4, sub = 2;
@@ -1434,6 +1471,10 @@
       noiseVoice(ctx, t, "highpass", 7500, 0, 0.55 * v, 0.045);
     } else if (id === "tom") {
       toneVoice(ctx, t, "sine", 240, 110, 1.05 * v, 0.22);
+    } else if (id === "tick") {
+      var hi = v >= 0.95;
+      toneVoice(ctx, t, "triangle", hi ? 3000 : 2100, hi ? 1500 : 1050, 1.05 * v, 0.030);
+      noiseVoice(ctx, t, "bandpass", hi ? 2600 : 1900, 2.5, 0.30 * v, 0.016);
     } else if (id === "cym") {
       // bright body + a longer, darker tail
       noiseVoice(ctx, t, "highpass", 4000, 0, 0.50 * v, 1.10);
@@ -1459,6 +1500,7 @@
   function applyPreset(kind) {
     pattern = blankPattern();
     var n = totalSteps();
+    var TICK = 6;
     if (kind === "rock") {
       for (var c = 0; c < n; c++) {
         pattern[2][c] = 1;                       // hi-hat on every step
@@ -1469,9 +1511,11 @@
         }
       }
     } else if (kind === "click") {
-      for (var c = 0; c < n; c++) {
-        if (c % sub === 0) pattern[c === 0 ? 0 : 2][c] = 1;  // kick on 1, hat elsewhere
-      }
+      // plain metronome: one tick per beat (downbeat pitched higher)
+      for (var c = 0; c < n; c++) if (c % sub === 0) pattern[TICK][c] = 1;
+    } else if (kind === "tick") {
+      // tick on EVERY step — 8비트를 고르면 8번, 16비트면 16번 울림
+      for (var c = 0; c < n; c++) pattern[TICK][c] = 1;
     }
     buildGrid();
   }
@@ -1723,6 +1767,14 @@
   window.__metro = {
     getLog: function () { return scheduledLog.slice(); },
     getVolume: function () { return volumePct; },
+    _tune: function (o) {
+      if (o.maxDb !== undefined) VOL_MAX_DB = o.maxDb;
+      if (o.minDb !== undefined) VOL_MIN_DB = o.minDb;
+      if (o.drive !== undefined) DRIVE = o.drive;
+      if (o.makeup !== undefined) MAKEUP = o.makeup;
+      if (o.k !== undefined) SHAPE_K = o.k;
+      masterGain = null; limiter = null;   // force rebuild
+    },
     // Renders a real bar through the actual audio chain offline so loudness
     // can be measured instead of guessed. Test-only.
     renderTest: function (pct, bypassChain) {

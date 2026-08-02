@@ -1,6 +1,6 @@
 // Bump this string on every update, otherwise installed copies keep
 // serving the old cached version.
-const CACHE_NAME = "tuner-metronome-cache-v10";
+const CACHE_NAME = "tuner-metronome-cache-v13";
 const ASSETS = [
   "./",
   "./index.html",
