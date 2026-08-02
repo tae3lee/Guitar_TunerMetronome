@@ -229,6 +229,12 @@
   }
   .tapmini:active { background: #2C3140; }
 
+  .sound-note {
+    font-size: 10.5px; line-height: 1.45; color: var(--text-dim);
+    text-align: center; padding: 8px 20px 0;
+  }
+  .sound-note b { color: var(--text); }
+
   /* ---------- metronome ---------- */
   .bpm-display { text-align: center; padding: 2px 0 0; }
   .bpm-num { font-size: 44px; font-weight: 800; line-height: 1; }
@@ -436,6 +442,7 @@
     </div>
 
     <button class="play-btn" id="play-btn">시작</button>
+    <div class="sound-note">소리가 안 들리면 아이폰 옆면의 <b>무음(벨) 스위치</b>와 볼륨을 확인하세요. 드럼 이름을 탭하면 그 소리만 따로 들어볼 수 있어요.</div>
   </section>
 
 </div>
@@ -455,6 +462,18 @@
   }
 
   var audioCtx = null;
+  var audioUnlocked = false;
+
+  // iOS mutes ordinary Web Audio when the side silent switch is on — which is
+  // why sound only worked after opening the tuner (a live mic stream flips the
+  // audio session and unmutes it). iOS 16.4+ lets us declare the session type
+  // directly: "playback" plays through the silent switch.
+  function setAudioSession(kind) {
+    try {
+      if (navigator.audioSession) navigator.audioSession.type = kind;
+    } catch (e) {}
+  }
+
   function ensureAudio() {
     if (!audioCtx) {
       var Ctx = window.AudioContext || window.webkitAudioContext;
@@ -463,6 +482,56 @@
     if (audioCtx && audioCtx.state === "suspended") audioCtx.resume();
     return audioCtx;
   }
+
+  // iOS keeps a new AudioContext suspended until a real user gesture, and
+  // resume() is ASYNC — scheduling notes right after calling it put them in
+  // the past, so nothing was heard. Playing a 1-sample silent buffer inside
+  // the gesture is what actually unlocks output.
+  function unlockAudio() {
+    var ctx = ensureAudio();
+    if (!ctx) return null;
+    if (!audioUnlocked) {
+      try {
+        var b = ctx.createBuffer(1, 1, 22050);
+        var s = ctx.createBufferSource();
+        s.buffer = b;
+        s.connect(ctx.destination);
+        s.start(0);
+        audioUnlocked = true;
+      } catch (e) {}
+    }
+    if (ctx.state === "suspended") ctx.resume();
+    return ctx;
+  }
+
+  // Run fn once the context is genuinely running, so we never schedule
+  // against a clock that hasn't started yet.
+  function withAudio(fn) {
+    var ctx = unlockAudio();
+    if (!ctx) { fn(null); return; }
+    if (ctx.state === "running") { fn(ctx); return; }
+    var done = false;
+    var go = function () { if (!done) { done = true; fn(ctx); } };
+    try {
+      var p = ctx.resume();
+      if (p && p.then) p.then(go, go); else go();
+    } catch (e) { go(); }
+    setTimeout(go, 350);   // fallback if resume() never settles
+  }
+
+  // Warm the context up on the very first touch anywhere, so audio is
+  // already running by the time the play button is pressed.
+  ["touchend", "mousedown", "keydown"].forEach(function (ev) {
+    document.addEventListener(ev, function once() {
+      unlockAudio();
+      document.removeEventListener(ev, once);
+    }, { passive: true });
+  });
+
+  // iOS suspends the context when the app goes to the background
+  document.addEventListener("visibilitychange", function () {
+    if (!document.hidden && audioCtx && audioCtx.state === "suspended") audioCtx.resume();
+  });
 
   var tabTuner = document.getElementById("tab-tuner");
   var tabMetro = document.getElementById("tab-metro");
@@ -1174,7 +1243,8 @@
       showMicError("<b>마이크를 쓸 수 없습니다.</b><br>이 앱은 <b>https 주소</b>로 열어야 마이크가 동작합니다. 파일을 직접 열거나 http로 접속하면 브라우저가 마이크를 차단해요.");
       return;
     }
-    var ctx = ensureAudio();
+    setAudioSession("play-and-record");
+    var ctx = unlockAudio();
     navigator.mediaDevices.getUserMedia({
       audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false }
     }).then(function (stream) {
@@ -1232,6 +1302,7 @@
     { id: "hat",   name: "하이햇", color: "#22D3EE" },
     { id: "tom",   name: "탐",     color: "#A78BFA" },
     { id: "clap",  name: "클랩",   color: "#F472B6" },
+    { id: "cym",   name: "심벌",   color: "#4ADE80" },
   ];
 
   var bpm = 90, beatsPerBar = 4, sub = 2;
@@ -1246,7 +1317,7 @@
   var noiseBuf = null;
   function getNoise(ctx) {
     if (!noiseBuf || noiseBuf.sampleRate !== ctx.sampleRate) {
-      var len = Math.floor(ctx.sampleRate * 0.4);
+      var len = Math.floor(ctx.sampleRate * 2.0);   // long enough for a crash tail
       noiseBuf = ctx.createBuffer(1, len, ctx.sampleRate);
       var d = noiseBuf.getChannelData(0);
       for (var i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
@@ -1289,6 +1360,10 @@
       noiseVoice(ctx, t, "highpass", 7500, 0, 0.32 * v, 0.045);
     } else if (id === "tom") {
       toneVoice(ctx, t, "sine", 240, 110, 0.7 * v, 0.22);
+    } else if (id === "cym") {
+      // bright body + a longer, darker tail
+      noiseVoice(ctx, t, "highpass", 4000, 0, 0.30 * v, 1.10);
+      noiseVoice(ctx, t, "bandpass", 7200, 0.7, 0.16 * v, 1.60);
     } else if (id === "clap") {
       for (var i = 0; i < 3; i++) {
         noiseVoice(ctx, t + i * 0.013, "bandpass", 1500, 1.3, 0.38 * v, 0.055);
@@ -1354,8 +1429,10 @@
       lab.innerHTML = '<span class="swatch" style="background:' + DRUMS[r].color + '"></span>' + DRUMS[r].name;
       (function (id) {
         lab.addEventListener("click", function () {   // tap a label to audition it
-          var ctx = ensureAudio();
-          if (ctx) playDrum(id, ctx.currentTime + 0.01, 1);
+          setAudioSession("playback");
+          withAudio(function (ctx) {
+            if (ctx) playDrum(id, ctx.currentTime + 0.02, 1);
+          });
         });
       })(DRUMS[r].id);
       elGrid.appendChild(lab);
@@ -1391,8 +1468,12 @@
     var el = cellEls[r][c];
     if (pattern[r][c]) {
       el.classList.add("on"); el.style.background = DRUMS[r].color;
-      var ctx = ensureAudio();
-      if (ctx && !isPlaying) playDrum(DRUMS[r].id, ctx.currentTime + 0.01, 0.9);
+      if (!isPlaying) {
+        setAudioSession("playback");
+        withAudio(function (ctx) {
+          if (ctx) playDrum(DRUMS[r].id, ctx.currentTime + 0.02, 0.9);
+        });
+      }
     } else { el.classList.remove("on"); el.style.background = ""; }
   }
 
@@ -1505,13 +1586,26 @@
     visualRaf = requestAnimationFrame(visualLoop);
   }
   function startMetronome() {
-    var ctx = ensureAudio();
-    if (!ctx) { showToast("이 브라우저는 오디오를 지원하지 않아요"); return; }
-    isPlaying = true; currentStep = 0; stepQueue = []; scheduledLog = []; lastHead = -1;
-    nextNoteTime = ctx.currentTime + 0.08;
-    schedulerHandle = setInterval(scheduler, LOOKAHEAD_MS);
-    scheduler(); visualLoop();
+    // Button feedback is immediate; the transport starts once the audio
+    // clock is actually running (see withAudio).
     elPlayBtn.textContent = "정지"; elPlayBtn.classList.add("playing");
+    isPlaying = true;
+    setAudioSession("playback");
+
+    withAudio(function (ctx) {
+      if (!ctx) {
+        isPlaying = false;
+        elPlayBtn.textContent = "시작"; elPlayBtn.classList.remove("playing");
+        showToast("이 브라우저는 오디오를 지원하지 않아요");
+        return;
+      }
+      if (!isPlaying) return;            // user hit stop while we were resuming
+      currentStep = 0; stepQueue = []; scheduledLog = []; lastHead = -1;
+      nextNoteTime = ctx.currentTime + 0.12;
+      if (schedulerHandle) clearInterval(schedulerHandle);
+      schedulerHandle = setInterval(scheduler, LOOKAHEAD_MS);
+      scheduler(); visualLoop();
+    });
   }
   function stopMetronome() {
     isPlaying = false;
