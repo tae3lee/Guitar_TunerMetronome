@@ -520,8 +520,11 @@
     detectPitch: detectPitch, freqToNote: freqToNote,
     setSens: function (k) { sens = SENS[k] || SENS.mid; },
     nearestString: nearestString,
-    pushSample: function (hz, midi, cents) { pushSample(hz, midi, cents); },
+    pushSample: function (hz, cents) { pushSample(hz, cents); },
     getSamples: function () { return samples.slice(); },
+    filterStep: function (cents) { return trace.push(cents); },
+    filterReset: function () { trace.reset(); },
+    getDiag: function () { return diag; },
     drawScope: function () { drawScope(); },
     setAuto: function (v) { autoMode = v; syncAutoUI(); },
     selectString: function (m) { selectString(m); },
@@ -602,10 +605,21 @@
     }
   }
 
+  // wipes the plotted line and the spike filter together, so a new
+  // string never inherits the previous one's smoothing state
+  function clearTrace() {
+    samples.length = 0;
+    trace.reset();
+    lastSampleT = 0;
+    smoothInit = false;
+    pendingMidi = null;
+    pendingRun = 0;
+  }
+
   function selectString(m) {
     selectedMidi = m;
     if (autoMode) { autoMode = false; syncAutoUI(); }
-    samples.length = 0;
+    clearTrace();
     targetMidi = m;
     var s = stringByMidi(m);
     if (s) showToast(s.num + "번 줄 (" + s.name + ") 고정");
@@ -621,7 +635,7 @@
   elAutoBtn.addEventListener("click", function () {
     autoMode = !autoMode;
     syncAutoUI();
-    samples.length = 0;
+    clearTrace();
     if (autoMode) { targetMidi = null; showToast("자동 감지 — 아무 줄이나 튕기세요"); }
     else { targetMidi = selectedMidi; var s = stringByMidi(selectedMidi);
            showToast("수동 — " + (s ? s.num + "번 줄 (" + s.name + ")" : "")); }
@@ -635,7 +649,7 @@
   });
   elA4.addEventListener("change", function () {
     a4Ref = Number(elA4.value);
-    tunedFlags = {}; samples.length = 0;
+    tunedFlags = {}; clearTrace();
     renderPegs(null, false); drawScope();
     showToast("기준음 A4 = " + a4Ref + " Hz");
   });
@@ -677,7 +691,60 @@
   var canvas = document.getElementById("scope");
   var cctx = canvas.getContext("2d");
   var SCOPE_H = 300;
-  var samples = [];  // {t, hz, midi, cents}
+  var samples = [];  // {t, hz, cents}
+
+  // ---- spike rejection -------------------------------------------------
+  // Two layers, because glitches come in two sizes:
+  //  · a big one-frame jump (octave misread, a knock on the body) is caught
+  //    by the jump gate — it only lets a large move through if it PERSISTS,
+  //    which is what a real string change looks like.
+  //  · small jitter is caught by a median filter. Median, not average:
+  //    averaging smears a spike into its neighbours, median deletes it.
+  var MEDIAN_N = 5;
+  var JUMP_LIMIT = 70;    // cents
+  var JUMP_CONFIRM = 3;   // frames a big move must persist to be believed
+
+  function median(arr) {
+    var s = arr.slice().sort(function (a, b) { return a - b; });
+    var m = Math.floor(s.length / 2);
+    return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+  }
+
+  var trace = {
+    hist: [], smooth: 0, init: false, jumpRun: 0,
+    reset: function () { this.hist.length = 0; this.init = false; this.jumpRun = 0; },
+    push: function (cents) {
+      if (this.init && Math.abs(cents - this.smooth) > JUMP_LIMIT) {
+        this.jumpRun++;
+        if (this.jumpRun < JUMP_CONFIRM) return null;      // isolated spike → drop
+        this.hist.length = 0; this.init = false; this.jumpRun = 0;  // sustained → real move
+      } else this.jumpRun = 0;
+
+      this.hist.push(cents);
+      if (this.hist.length > MEDIAN_N) this.hist.shift();
+      var med = median(this.hist);
+      if (!this.init) { this.smooth = med; this.init = true; }
+      else this.smooth = this.smooth * 0.75 + med * 0.25;
+      return this.smooth;
+    }
+  };
+
+  // ---- even sampling so the line has no ragged gaps --------------------
+  var SAMPLE_MS = 33;   // ~30 points/sec, evenly spaced
+  var HOLD_MS = 600;    // carry the last value through brief dropouts
+  var lastSampleT = 0;
+
+  // A glitch can land on a completely different NOTE, which would otherwise
+  // slip past the cents filter and wipe the whole line. So a new note has to
+  // persist too before we believe the player actually changed strings.
+  // ~200ms. A knock on the body or a pick-attack transient reads as a bogus
+  // note for only 4-5 frames; a string you actually plucked rings for seconds.
+  // At 4 frames the glitches were clearing the trace, so duration is what
+  // separates them.
+  var NOTE_CONFIRM = 12;
+  var pendingMidi = null, pendingRun = 0;
+
+  var diag = { noteChanges: [], spikesDropped: 0, notePending: 0 };
 
   function resizeScope() {
     var cssW = canvas.parentElement.clientWidth || 360;
@@ -691,9 +758,9 @@
   }
   window.addEventListener("resize", resizeScope);
 
-  function pushSample(hz, midi, cents) {
+  function pushSample(hz, cents) {
     var now = performance.now();
-    samples.push({ t: now, hz: hz, midi: midi, cents: cents });
+    samples.push({ t: now, hz: hz, cents: cents });
     var cutoff = now - WINDOW_MS - 400;
     while (samples.length && samples[0].t < cutoff) samples.shift();
   }
@@ -775,26 +842,39 @@
       return plotT + (age / WINDOW_MS) * plotH;
     }
 
-    cctx.lineWidth = 2.5;
-    cctx.lineJoin = "round";
-    cctx.lineCap = "round";
-    var drawing = false;
-    for (var i = samples.length - 1; i >= 0; i--) {
+    // Collect the visible points (oldest first → bottom to top).
+    // The buffer is cleared whenever the target note changes, so every
+    // point here belongs to the same string: one unbroken line.
+    var pts = [];
+    for (var i = 0; i < samples.length; i++) {
       var s = samples[i];
-      if (s.t < now - WINDOW_MS) break;
-      if (targetMidi !== null && s.midi !== targetMidi) {
-        if (drawing) { cctx.stroke(); drawing = false; }
-        continue;
-      }
-      var x = centsToX(s.cents), y = tToY(s.t);
-      var age = (now - s.t) / WINDOW_MS;
-      if (!drawing) {
-        cctx.beginPath();
-        cctx.strokeStyle = "rgba(190,214,84," + (1 - age * 0.75).toFixed(3) + ")";
-        cctx.moveTo(x, y); drawing = true;
-      } else cctx.lineTo(x, y);
+      if (s.t < now - WINDOW_MS) continue;
+      pts.push({ x: centsToX(s.cents), y: tToY(s.t) });
     }
-    if (drawing) cctx.stroke();
+
+    if (pts.length >= 2) {
+      // Fade with age via a gradient down the time axis, so the whole
+      // trace is a single continuous stroke instead of per-segment pieces.
+      var grad = cctx.createLinearGradient(0, plotT, 0, plotB);
+      grad.addColorStop(0, "rgba(190,214,84,1)");
+      grad.addColorStop(0.55, "rgba(190,214,84,0.75)");
+      grad.addColorStop(1, "rgba(190,214,84,0.12)");
+      cctx.strokeStyle = grad;
+      cctx.lineWidth = 2.5;
+      cctx.lineJoin = "round";
+      cctx.lineCap = "round";
+
+      // Quadratic segments through the midpoints: smooth curve, no corners.
+      cctx.beginPath();
+      cctx.moveTo(pts[0].x, pts[0].y);
+      for (var i = 1; i < pts.length - 1; i++) {
+        var xc = (pts[i].x + pts[i + 1].x) / 2;
+        var yc = (pts[i].y + pts[i + 1].y) / 2;
+        cctx.quadraticCurveTo(pts[i].x, pts[i].y, xc, yc);
+      }
+      cctx.lineTo(pts[pts.length - 1].x, pts[pts.length - 1].y);
+      cctx.stroke();
+    }
 
     // ---- current-position bubble at the top ----
     if (fresh) {
@@ -860,45 +940,79 @@
     elLevelFill.style.width = (levelPeak * 100).toFixed(1) + "%";
 
     var now = performance.now();
-    if (res.freq > 0 && res.clarity > sens.clarity) {
-      var tMidi, cents;
+    var got = (res.freq > 0 && res.clarity > sens.clarity);
+    var tMidi = null, rawCents = 0;
+
+    if (got) {
       if (autoMode) {
         var n = freqToNote(res.freq);
         tMidi = n.midi;
-        cents = n.cents;
-        var near = nearestString(n.midi);
-        if (near) tMidi = n.midi;
+        rawCents = n.cents;
       } else {
         tMidi = selectedMidi;
-        cents = 1200 * Math.log2(res.freq / midiToFreq(selectedMidi));
+        rawCents = 1200 * Math.log2(res.freq / midiToFreq(selectedMidi));
+        // In manual mode a wildly different note means the player is on
+        // another string — that isn't a reading for this one.
+        if (Math.abs(rawCents) > 350) got = false;
       }
+    }
 
-      // In manual mode a wildly different note means the player is on
-      // another string — don't pretend that's a reading for this one.
-      if (!autoMode && Math.abs(cents) > 350) {
-        if (now - lastGoodAt > 2200 && hadNote) { resetReadout(); hadNote = false; }
-        drawScope();
-        rafId = requestAnimationFrame(updateLoop);
-        return;
+    if (got) {
+      // A different note means a different axis, so the line has to restart —
+      // but only once we're sure it's a real string change, not a one-frame
+      // misread. Without this a single glitch erased the whole trace.
+      if (targetMidi === null) {
+        targetMidi = tMidi;
+        clearTrace();
+        pendingMidi = null; pendingRun = 0;
+      } else if (tMidi !== targetMidi) {
+        if (pendingMidi === tMidi) pendingRun++;
+        else { pendingMidi = tMidi; pendingRun = 1; }
+
+        if (pendingRun >= NOTE_CONFIRM) {
+          diag.noteChanges.push({ from: targetMidi, to: tMidi, clarity: +res.clarity.toFixed(2), t: Math.round(now) });
+          if (diag.noteChanges.length > 20) diag.noteChanges.shift();
+          targetMidi = tMidi;
+          clearTrace();
+          pendingMidi = null; pendingRun = 0;
+        } else {
+          diag.notePending++;
+          got = false;   // ignore this frame — don't plot it, don't reset
+        }
+      } else {
+        pendingMidi = null; pendingRun = 0;
       }
+    }
 
-      if (targetMidi !== tMidi) { targetMidi = tMidi; smoothInit = false; }
-      lastGoodAt = now; hadNote = true;
+    if (got) {
+      var filtered = trace.push(rawCents);   // null = rejected as a spike
+      if (filtered === null) diag.spikesDropped++;
+      if (filtered !== null) {
+        smoothCents = filtered;
+        smoothInit = true;
+        lastGoodAt = now;
+        hadNote = true;
+      }
+    }
 
-      if (!smoothInit) { smoothCents = cents; smoothInit = true; }
-      else smoothCents = smoothCents * 0.7 + cents * 0.3;
+    // Keep the readout and the line alive through short dropouts (a plucked
+    // string decays below the gate long before the player stops tuning).
+    var alive = smoothInit && (now - lastGoodAt) < HOLD_MS;
 
+    if (alive) {
       var absC = Math.abs(smoothCents);
       var inTune = absC <= TOL_CENTS;
+      var targetHz = midiToFreq(targetMidi);
+      var shownHz = targetHz * Math.pow(2, smoothCents / 1200);
 
-      elHz.innerHTML = res.freq.toFixed(1) + '<small>Hz</small>';
+      elHz.innerHTML = shownHz.toFixed(1) + '<small>Hz</small>';
       elHz.className = "hz" + (inTune ? " ok" : "");
       var sign = smoothCents > 0 ? "+" : "";
       elCents.textContent = sign + smoothCents.toFixed(0) + " cents";
       elCents.className = "cents " + (inTune ? "ok" : (absC <= 18 ? "warn" : "bad"));
 
       var st = stringByMidi(targetMidi);
-      var who = st ? (st.num + "번 줄 " + st.name) : freqToNote(res.freq).name;
+      var who = st ? (st.num + "번 줄 " + st.name) : freqToNote(shownHz).name;
       if (inTune) {
         elStatusLine.innerHTML = "<b>✓ " + who + " — 맞았습니다</b>";
         if (st) tunedFlags[st.midi] = true;
@@ -907,11 +1021,14 @@
       } else {
         elStatusLine.textContent = "↓ " + who + " · 높음 — 풀어주세요";
       }
-
       setEdges(inTune);
-      pushSample(res.freq, targetMidi, cents);
       renderPegs(targetMidi, inTune);
 
+      // fixed-cadence sampling → evenly spaced points, smooth line
+      if (now - lastSampleT >= SAMPLE_MS) {
+        lastSampleT = now;
+        pushSample(shownHz, smoothCents);
+      }
     } else if (now - lastGoodAt > 2200) {
       if (hadNote) { resetReadout(); hadNote = false; }
     }
@@ -929,7 +1046,7 @@
     elMicBtn.textContent = "마이크 켜고 튜닝 시작";
     elMicBtn.classList.remove("listening");
     elLevelFill.style.width = "0%";
-    samples.length = 0;
+    clearTrace();
     resetReadout();
     drawScope();
   }
