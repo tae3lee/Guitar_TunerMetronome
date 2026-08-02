@@ -1,0 +1,1106 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
+<title>기타 튜너 &amp; 메트로놈</title>
+
+<link rel="manifest" href="./manifest.json" />
+<meta name="theme-color" content="#0F1222" />
+<link rel="icon" href="./icons/icon-192.png" />
+<link rel="apple-touch-icon" href="./icons/icon-192.png" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="튜너" />
+
+<style>
+  :root {
+    --bg: #0F1222;
+    --card: #1A1E33;
+    --card-2: #232842;
+    --border: #2C3150;
+    --text: #F1F2F6;
+    --text-dim: #9599B3;
+    --indigo: #6366F1;
+    --green: #22C55E;
+    --amber: #F59E0B;
+    --red: #EF4444;
+    --cyan: #06B6D4;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans KR", sans-serif;
+    height: 100%;
+    overscroll-behavior-y: none;
+  }
+  body { user-select: none; }
+  #app {
+    max-width: 480px;
+    margin: 0 auto;
+    min-height: 100dvh;
+    padding: env(safe-area-inset-top) 14px calc(env(safe-area-inset-bottom) + 18px);
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* ---- tabs ---- */
+  .tabs {
+    display: flex;
+    gap: 6px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 5px;
+    margin: 14px 0 16px;
+  }
+  .tab {
+    flex: 1;
+    padding: 11px 8px;
+    border: none;
+    background: transparent;
+    color: var(--text-dim);
+    font-size: 14px;
+    font-weight: 700;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: background 0.18s ease, color 0.18s ease;
+  }
+  .tab.active { background: var(--indigo); color: #fff; }
+
+  .panel { display: none; flex-direction: column; gap: 14px; flex: 1; }
+  .panel.active { display: flex; }
+
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    padding: 16px;
+  }
+
+  /* ---- tuner ---- */
+  .tuner-main {
+    display: flex; flex-direction: column; align-items: center;
+    padding: 22px 16px 18px;
+    gap: 4px;
+  }
+  .note-name {
+    font-size: 76px;
+    font-weight: 800;
+    line-height: 1;
+    letter-spacing: -1px;
+    transition: color 0.15s ease;
+    color: var(--text-dim);
+  }
+  .note-name sup { font-size: 26px; font-weight: 700; margin-left: 2px; vertical-align: super; }
+  .note-name.in-tune { color: var(--green); }
+  .note-name.near { color: var(--amber); }
+  .note-name.off { color: var(--text); }
+
+  .hz-now {
+    font-size: 32px;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.5px;
+    line-height: 1.1;
+    margin-top: 2px;
+    color: var(--text-dim);
+    transition: color 0.15s ease;
+    min-height: 36px;
+  }
+  .hz-now .hz-unit { font-size: 15px; font-weight: 600; margin-left: 4px; color: var(--text-dim); }
+  .hz-now.in-tune { color: var(--green); }
+  .hz-now.near { color: var(--amber); }
+  .hz-now.off { color: var(--red); }
+
+  .string-hint { font-size: 13px; color: var(--text-dim); min-height: 18px; margin-top: 2px; }
+  .string-hint b { color: var(--cyan); }
+
+  .status-badge {
+    margin-top: 10px;
+    padding: 9px 16px;
+    border-radius: 999px;
+    font-size: 13.5px;
+    font-weight: 700;
+    background: var(--card-2);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    text-align: center;
+    transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+  }
+  .status-badge.ok {
+    background: rgba(34,197,94,0.16);
+    border-color: rgba(34,197,94,0.5);
+    color: #4ADE80;
+  }
+  .status-badge.low {
+    background: rgba(59,130,246,0.14);
+    border-color: rgba(59,130,246,0.45);
+    color: #93C5FD;
+  }
+  .status-badge.high {
+    background: rgba(239,68,68,0.14);
+    border-color: rgba(239,68,68,0.45);
+    color: #FCA5A5;
+  }
+
+  /* Hz range bar */
+  .hz-range-box { width: 100%; margin-top: 14px; }
+  .hz-range-track {
+    position: relative;
+    height: 12px;
+    border-radius: 6px;
+    background: var(--card-2);
+    border: 1px solid var(--border);
+    overflow: visible;
+  }
+  .hz-range-ok {
+    position: absolute;
+    top: 0; bottom: 0;
+    left: 44%; width: 12%;
+    background: rgba(34,197,94,0.35);
+    border-left: 1px solid rgba(34,197,94,0.8);
+    border-right: 1px solid rgba(34,197,94,0.8);
+  }
+  .hz-range-marker {
+    position: absolute;
+    top: -5px;
+    left: 50%;
+    width: 4px; height: 20px;
+    border-radius: 2px;
+    background: var(--text-dim);
+    transform: translateX(-2px);
+    transition: left 0.09s linear, background 0.15s ease;
+  }
+  .hz-range-labels {
+    display: flex;
+    justify-content: space-between;
+    font-size: 10.5px;
+    color: var(--text-dim);
+    font-variant-numeric: tabular-nums;
+    margin-top: 5px;
+  }
+  .hz-range-labels #hz-target { color: var(--green); font-weight: 700; }
+
+  /* cents gauge */
+  .gauge { width: 100%; margin-top: 14px; }
+  .gauge svg { width: 100%; height: auto; display: block; }
+
+  .cents-text {
+    font-size: 15px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    min-height: 22px;
+    margin-top: 6px;
+  }
+  .cents-text.flat { color: var(--amber); }
+  .cents-text.sharp { color: var(--amber); }
+  .cents-text.ok { color: var(--green); }
+
+  .mic-btn {
+    width: 100%;
+    background: linear-gradient(155deg, #6366F1, #4338CA);
+    color: #fff; border: none;
+    padding: 16px; border-radius: 16px;
+    font-size: 15px; font-weight: 700; cursor: pointer;
+    box-shadow: 0 10px 24px rgba(99,102,241,0.32);
+  }
+  .mic-btn.listening {
+    background: linear-gradient(155deg, #EF4444, #991B1B);
+    box-shadow: 0 10px 24px rgba(239,68,68,0.3);
+  }
+  .mic-btn:active { transform: scale(0.985); }
+
+  .err-box {
+    display: none;
+    font-size: 12.5px; line-height: 1.55;
+    color: #FCA5A5;
+    background: rgba(239,68,68,0.08);
+    border: 1px solid rgba(239,68,68,0.3);
+    border-radius: 14px;
+    padding: 12px 14px;
+  }
+  .err-box.show { display: block; }
+
+  /* string reference row */
+  .strings-row {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 6px;
+  }
+  .string-chip {
+    text-align: center;
+    padding: 9px 2px;
+    border-radius: 11px;
+    background: var(--card-2);
+    border: 1px solid var(--border);
+    font-size: 13px;
+    font-weight: 700;
+    transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+  }
+  .string-chip small { display: block; font-size: 9.5px; color: var(--text-dim); font-weight: 400; margin-top: 2px; }
+  .string-chip.active { background: rgba(6,182,212,0.16); border-color: var(--cyan); color: var(--cyan); }
+  .string-chip.active small { color: var(--cyan); }
+  .string-chip.tuned { background: rgba(34,197,94,0.16); border-color: var(--green); color: var(--green); }
+  .string-chip.tuned small { color: var(--green); }
+
+  .row-between { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .label-sm { font-size: 12.5px; color: var(--text-dim); }
+  select, .num-input {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 10px;
+    padding: 8px 10px;
+    font-size: 13.5px;
+  }
+
+  /* ---- metronome ---- */
+  .bpm-display { text-align: center; padding: 10px 0 2px; }
+  .bpm-num {
+    font-size: 66px; font-weight: 800; line-height: 1;
+    font-variant-numeric: tabular-nums;
+  }
+  .bpm-unit { font-size: 13px; color: var(--text-dim); letter-spacing: 2px; margin-top: 2px; }
+  .tempo-name { font-size: 12.5px; color: var(--text-dim); margin-top: 4px; min-height: 18px; }
+
+  input[type=range] {
+    width: 100%;
+    -webkit-appearance: none;
+    appearance: none;
+    background: transparent;
+    margin: 14px 0 4px;
+  }
+  input[type=range]::-webkit-slider-runnable-track {
+    height: 6px; border-radius: 3px; background: var(--card-2);
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 26px; height: 26px; border-radius: 50%;
+    background: var(--indigo);
+    border: 3px solid #fff;
+    margin-top: -10px;
+    box-shadow: 0 3px 10px rgba(0,0,0,0.4);
+  }
+  input[type=range]::-moz-range-track { height: 6px; border-radius: 3px; background: var(--card-2); }
+  input[type=range]::-moz-range-thumb {
+    width: 22px; height: 22px; border-radius: 50%;
+    background: var(--indigo); border: 3px solid #fff;
+  }
+
+  .bpm-btns { display: flex; gap: 8px; }
+  .bpm-btn {
+    flex: 1;
+    background: var(--card-2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 12px;
+    padding: 12px 4px;
+    font-size: 15px;
+    font-weight: 700;
+    cursor: pointer;
+  }
+  .bpm-btn:active { background: #2C3150; }
+
+  .beat-dots {
+    display: flex; justify-content: center; gap: 10px;
+    padding: 6px 0 2px;
+    flex-wrap: wrap;
+  }
+  .beat-dot {
+    width: 15px; height: 15px; border-radius: 50%;
+    background: var(--card-2);
+    border: 1px solid var(--border);
+    transition: transform 0.06s ease, background 0.06s ease;
+  }
+  .beat-dot.accent { border-color: #4B5175; }
+  .beat-dot.hit { background: var(--indigo); transform: scale(1.5); }
+  .beat-dot.hit.accent { background: var(--amber); }
+
+  .play-btn {
+    width: 100%;
+    background: linear-gradient(155deg, #22C55E, #15803D);
+    color: #fff; border: none;
+    padding: 18px; border-radius: 16px;
+    font-size: 17px; font-weight: 800; cursor: pointer;
+    box-shadow: 0 10px 24px rgba(34,197,94,0.3);
+  }
+  .play-btn.playing {
+    background: linear-gradient(155deg, #EF4444, #991B1B);
+    box-shadow: 0 10px 24px rgba(239,68,68,0.3);
+  }
+  .play-btn:active { transform: scale(0.985); }
+
+  .tap-btn {
+    width: 100%;
+    background: var(--card-2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 14px; border-radius: 14px;
+    font-size: 14px; font-weight: 700; cursor: pointer;
+  }
+  .tap-btn:active { background: #2C3150; }
+
+  .toast {
+    position: fixed; left: 50%; bottom: 22px;
+    transform: translateX(-50%) translateY(10px);
+    background: #2C3150; color: var(--text);
+    padding: 10px 18px; border-radius: 999px;
+    font-size: 13px; opacity: 0; pointer-events: none;
+    transition: opacity .25s ease, transform .25s ease;
+    white-space: nowrap; z-index: 50;
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <div class="tabs">
+    <button class="tab active" id="tab-tuner">🎸 튜너</button>
+    <button class="tab" id="tab-metro">🥁 메트로놈</button>
+  </div>
+
+  <!-- ================= TUNER ================= -->
+  <section class="panel active" id="panel-tuner">
+
+    <div class="err-box" id="mic-error"></div>
+
+    <div class="card tuner-main">
+      <div class="note-name" id="note-name">--</div>
+      <div class="hz-now" id="hz-now">--<span class="hz-unit">Hz</span></div>
+      <div class="string-hint" id="string-hint"></div>
+
+      <div class="status-badge" id="status-badge">마이크를 켜고 줄을 튕겨보세요</div>
+
+      <div class="hz-range-box" id="hz-range-box">
+        <div class="hz-range-track">
+          <div class="hz-range-ok" id="hz-range-ok"></div>
+          <div class="hz-range-marker" id="hz-range-marker"></div>
+        </div>
+        <div class="hz-range-labels">
+          <span id="hz-lo">--</span>
+          <span id="hz-target">목표 --</span>
+          <span id="hz-hi">--</span>
+        </div>
+      </div>
+
+      <div class="gauge">
+        <svg viewBox="0 0 320 92" id="gauge-svg">
+          <!-- ticks -->
+          <g id="gauge-ticks"></g>
+          <!-- center target zone -->
+          <rect x="150" y="30" width="20" height="34" rx="4" fill="rgba(34,197,94,0.14)" stroke="rgba(34,197,94,0.4)"></rect>
+          <!-- needle -->
+          <line id="needle" x1="160" y1="26" x2="160" y2="68" stroke="#9599B3" stroke-width="4" stroke-linecap="round"></line>
+          <circle id="needle-base" cx="160" cy="68" r="5" fill="#9599B3"></circle>
+          <text x="8" y="86" fill="#9599B3" font-size="10">♭ -50</text>
+          <text x="146" y="86" fill="#9599B3" font-size="10">0</text>
+          <text x="278" y="86" fill="#9599B3" font-size="10">+50 ♯</text>
+        </svg>
+      </div>
+      <div class="cents-text" id="cents-text"></div>
+    </div>
+
+    <div class="card">
+      <div class="strings-row" id="strings-row"></div>
+    </div>
+
+    <div class="card">
+      <div class="row-between">
+        <span class="label-sm">기준음 A4</span>
+        <select id="a4-select">
+          <option value="432">432 Hz</option>
+          <option value="438">438 Hz</option>
+          <option value="440" selected>440 Hz (표준)</option>
+          <option value="442">442 Hz</option>
+          <option value="444">444 Hz</option>
+        </select>
+      </div>
+    </div>
+
+    <button class="mic-btn" id="mic-btn">마이크 켜고 튜닝 시작</button>
+  </section>
+
+  <!-- ================= METRONOME ================= -->
+  <section class="panel" id="panel-metro">
+
+    <div class="card">
+      <div class="bpm-display">
+        <div class="bpm-num" id="bpm-num">90</div>
+        <div class="bpm-unit">BPM</div>
+        <div class="tempo-name" id="tempo-name"></div>
+      </div>
+      <input type="range" id="bpm-range" min="40" max="240" value="90" step="1" />
+      <div class="bpm-btns">
+        <button class="bpm-btn" data-delta="-5">−5</button>
+        <button class="bpm-btn" data-delta="-1">−1</button>
+        <button class="bpm-btn" data-delta="1">+1</button>
+        <button class="bpm-btn" data-delta="5">+5</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="row-between" style="margin-bottom:12px;">
+        <span class="label-sm">박자</span>
+        <select id="meter-select">
+          <option value="2">2/4</option>
+          <option value="3">3/4</option>
+          <option value="4" selected>4/4</option>
+          <option value="6">6/8</option>
+        </select>
+      </div>
+      <div class="row-between" style="margin-bottom:14px;">
+        <span class="label-sm">소리</span>
+        <select id="sound-select">
+          <option value="click" selected>클릭</option>
+          <option value="wood">우드블록</option>
+          <option value="beep">비프</option>
+        </select>
+      </div>
+      <div class="beat-dots" id="beat-dots"></div>
+    </div>
+
+    <button class="play-btn" id="play-btn">시작</button>
+    <button class="tap-btn" id="tap-btn">탭으로 템포 맞추기</button>
+  </section>
+
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(function () {
+  "use strict";
+
+  // =====================================================
+  // Shared helpers
+  // =====================================================
+  var toastEl = document.getElementById("toast");
+  function showToast(msg) {
+    toastEl.textContent = msg;
+    toastEl.classList.add("show");
+    clearTimeout(showToast._t);
+    showToast._t = setTimeout(function () { toastEl.classList.remove("show"); }, 1600);
+  }
+
+  var audioCtx = null;
+  function ensureAudio() {
+    if (!audioCtx) {
+      var Ctx = window.AudioContext || window.webkitAudioContext;
+      if (Ctx) audioCtx = new Ctx();
+    }
+    if (audioCtx && audioCtx.state === "suspended") audioCtx.resume();
+    return audioCtx;
+  }
+
+  // =====================================================
+  // Tabs
+  // =====================================================
+  var tabTuner = document.getElementById("tab-tuner");
+  var tabMetro = document.getElementById("tab-metro");
+  var panelTuner = document.getElementById("panel-tuner");
+  var panelMetro = document.getElementById("panel-metro");
+
+  tabTuner.addEventListener("click", function () {
+    tabTuner.classList.add("active"); tabMetro.classList.remove("active");
+    panelTuner.classList.add("active"); panelMetro.classList.remove("active");
+  });
+  tabMetro.addEventListener("click", function () {
+    tabMetro.classList.add("active"); tabTuner.classList.remove("active");
+    panelMetro.classList.add("active"); panelTuner.classList.remove("active");
+  });
+
+  // =====================================================
+  // PITCH DETECTION
+  // Normalized autocorrelation restricted to a musical lag
+  // range, with McLeod-style first-peak picking to avoid
+  // the octave errors plain ACF makes on guitar low strings.
+  // =====================================================
+  var MIN_HZ = 60;    // below low E (82.4) with margin
+  var MAX_HZ = 1400;  // well above 12th-fret high E
+
+  function detectPitch(buf, sampleRate) {
+    var SIZE = buf.length;
+
+    // --- signal level gate ---
+    var sumSq = 0;
+    for (var i = 0; i < SIZE; i++) sumSq += buf[i] * buf[i];
+    var rms = Math.sqrt(sumSq / SIZE);
+    if (rms < 0.008) return { freq: -1, clarity: 0, rms: rms };
+
+    // --- remove DC offset ---
+    var mean = 0;
+    for (var i = 0; i < SIZE; i++) mean += buf[i];
+    mean /= SIZE;
+    var x = new Float32Array(SIZE);
+    for (var i = 0; i < SIZE; i++) x[i] = buf[i] - mean;
+
+    var minLag = Math.floor(sampleRate / MAX_HZ);
+    var maxLag = Math.floor(sampleRate / MIN_HZ);
+    if (maxLag >= SIZE) maxLag = SIZE - 1;
+    if (minLag < 2) minLag = 2;
+    if (minLag >= maxLag) return { freq: -1, clarity: 0, rms: rms };
+
+    // --- normalized square difference (NSDF) ---
+    var nsdf = new Float32Array(maxLag + 1);
+    for (var tau = minLag; tau <= maxLag; tau++) {
+      var acf = 0, m = 0;
+      var n = SIZE - tau;
+      for (var i = 0; i < n; i++) {
+        var a = x[i], b = x[i + tau];
+        acf += a * b;
+        m += a * a + b * b;
+      }
+      nsdf[tau] = m > 0 ? (2 * acf) / m : 0;
+    }
+
+    // --- collect local maxima (peaks) ---
+    var globalMax = 0;
+    var peaks = [];
+    for (var tau = minLag + 1; tau < maxLag; tau++) {
+      if (nsdf[tau] > nsdf[tau - 1] && nsdf[tau] >= nsdf[tau + 1] && nsdf[tau] > 0) {
+        peaks.push(tau);
+        if (nsdf[tau] > globalMax) globalMax = nsdf[tau];
+      }
+    }
+    if (!peaks.length || globalMax <= 0) return { freq: -1, clarity: 0, rms: rms };
+
+    // --- pick FIRST peak clearing the threshold.
+    // This is what prevents reporting an octave too low: a plain
+    // "take the global max" pick lands on a later, taller multiple
+    // of the true period when the fundamental is weak. ---
+    var K = 0.88;
+    var threshold = K * globalMax;
+    var chosen = peaks[0];
+    for (var p = 0; p < peaks.length; p++) {
+      if (nsdf[peaks[p]] >= threshold) { chosen = peaks[p]; break; }
+    }
+
+    // --- parabolic interpolation around the chosen peak ---
+    var t = chosen;
+    var y1 = nsdf[t - 1], y2 = nsdf[t], y3 = nsdf[t + 1];
+    var denom = (y1 + y3 - 2 * y2);
+    var shift = denom !== 0 ? 0.5 * (y1 - y3) / denom : 0;
+    if (!isFinite(shift) || Math.abs(shift) > 1) shift = 0;
+    var period = t + shift;
+    if (period <= 0) return { freq: -1, clarity: 0, rms: rms };
+
+    return { freq: sampleRate / period, clarity: nsdf[chosen], rms: rms };
+  }
+
+  // --- note math ---
+  var NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+  var a4Ref = 440;
+
+  function freqToNote(freq) {
+    var midi = 69 + 12 * Math.log2(freq / a4Ref);
+    var rounded = Math.round(midi);
+    var exact = a4Ref * Math.pow(2, (rounded - 69) / 12);
+    var cents = 1200 * Math.log2(freq / exact);
+    return {
+      midi: rounded,
+      name: NOTE_NAMES[((rounded % 12) + 12) % 12],
+      octave: Math.floor(rounded / 12) - 1,
+      cents: cents,
+      exactFreq: exact,
+    };
+  }
+
+  // standard tuning, low -> high
+  var STRINGS = [
+    { label: "6E", midi: 40 }, { label: "5A", midi: 45 },
+    { label: "4D", midi: 50 }, { label: "3G", midi: 55 },
+    { label: "2B", midi: 59 }, { label: "1E", midi: 64 },
+  ];
+
+  function nearestString(midi) {
+    var best = null, bestDist = 1e9;
+    for (var i = 0; i < STRINGS.length; i++) {
+      var d = Math.abs(STRINGS[i].midi - midi);
+      if (d < bestDist) { bestDist = d; best = STRINGS[i]; }
+    }
+    return bestDist <= 2 ? best : null;
+  }
+
+  // expose for automated testing
+  window.__tuner = {
+    detectPitch: detectPitch,
+    freqToNote: freqToNote,
+    setA4: function (v) { a4Ref = v; },
+    nearestString: nearestString,
+  };
+
+  // =====================================================
+  // TUNER UI
+  // =====================================================
+  var elNote = document.getElementById("note-name");
+  var elHzNow = document.getElementById("hz-now");
+  var elStatus = document.getElementById("status-badge");
+  var elHzOk = document.getElementById("hz-range-ok");
+  var elHzMarker = document.getElementById("hz-range-marker");
+  var elHzLo = document.getElementById("hz-lo");
+  var elHzHi = document.getElementById("hz-hi");
+  var elHzTarget = document.getElementById("hz-target");
+  var elHint = document.getElementById("string-hint");
+  var elCents = document.getElementById("cents-text");
+  var elNeedle = document.getElementById("needle");
+  var elNeedleBase = document.getElementById("needle-base");
+  var elMicBtn = document.getElementById("mic-btn");
+  var elMicErr = document.getElementById("mic-error");
+  var elStringsRow = document.getElementById("strings-row");
+  var elA4 = document.getElementById("a4-select");
+  var elTicks = document.getElementById("gauge-ticks");
+
+  // draw gauge ticks
+  (function drawTicks() {
+    var html = "";
+    for (var c = -50; c <= 50; c += 10) {
+      var xx = 160 + (c / 50) * 140;
+      var major = (c % 50 === 0);
+      var h = major ? 12 : 7;
+      html += '<line x1="' + xx + '" y1="' + (18) + '" x2="' + xx + '" y2="' + (18 + h) +
+        '" stroke="' + (major ? "#4B5175" : "#343A5C") + '" stroke-width="2" />';
+    }
+    elTicks.innerHTML = html;
+  })();
+
+  // string chips
+  var tunedFlags = {};
+  function renderStrings(activeMidi, isInTune) {
+    var html = "";
+    for (var i = 0; i < STRINGS.length; i++) {
+      var s = STRINGS[i];
+      var cls = "string-chip";
+      if (activeMidi === s.midi) cls += isInTune ? " tuned" : " active";
+      else if (tunedFlags[s.midi]) cls += " tuned";
+      var f = a4Ref * Math.pow(2, (s.midi - 69) / 12);
+      html += '<div class="' + cls + '">' + s.label.slice(1) +
+        '<small>' + f.toFixed(1) + '</small></div>';
+    }
+    elStringsRow.innerHTML = html;
+  }
+  renderStrings(null, false);
+
+  elA4.addEventListener("change", function () {
+    a4Ref = Number(elA4.value);
+    tunedFlags = {};
+    renderStrings(null, false);
+    showToast("기준음 A4 = " + a4Ref + " Hz");
+  });
+
+  var micStream = null, analyser = null, sourceNode = null, rafId = null, listening = false;
+  var sampleBuf = null;
+
+  // smoothing so the needle doesn't jitter
+  var smoothCents = 0, smoothInit = false;
+  var lastGoodAt = 0, lastNote = null;
+
+  function setNeedle(cents, color) {
+    var clamped = Math.max(-50, Math.min(50, cents));
+    var xx = 160 + (clamped / 50) * 140;
+    elNeedle.setAttribute("x1", xx.toFixed(1));
+    elNeedle.setAttribute("x2", xx.toFixed(1));
+    elNeedle.setAttribute("stroke", color);
+    elNeedleBase.setAttribute("cx", xx.toFixed(1));
+    elNeedleBase.setAttribute("fill", color);
+  }
+
+  // ±5 cents is the "in range" window
+  var TOL_CENTS = 5;
+  // the Hz bar spans ±40 cents around the target
+  var BAR_SPAN_CENTS = 40;
+
+  function resetDisplay() {
+    elNote.textContent = "--";
+    elNote.className = "note-name";
+    elHzNow.innerHTML = '--<span class="hz-unit">Hz</span>';
+    elHzNow.className = "hz-now";
+    elStatus.textContent = "줄을 튕겨보세요";
+    elStatus.className = "status-badge";
+    elHzLo.textContent = "--";
+    elHzHi.textContent = "--";
+    elHzTarget.textContent = "목표 --";
+    elHzMarker.style.left = "50%";
+    elHzMarker.style.background = "#9599B3";
+    elHint.textContent = "";
+    elCents.textContent = "";
+    elCents.className = "cents-text";
+    setNeedle(0, "#9599B3");
+    smoothInit = false;
+    renderStrings(null, false);
+  }
+
+  // Draw the acceptable-Hz window and where the current reading sits inside it.
+  function updateHzRange(currentHz, targetHz, cents, color) {
+    var loHz = targetHz * Math.pow(2, -TOL_CENTS / 1200);
+    var hiHz = targetHz * Math.pow(2, TOL_CENTS / 1200);
+    var barLoHz = targetHz * Math.pow(2, -BAR_SPAN_CENTS / 1200);
+    var barHiHz = targetHz * Math.pow(2, BAR_SPAN_CENTS / 1200);
+
+    elHzLo.textContent = barLoHz.toFixed(1);
+    elHzHi.textContent = barHiHz.toFixed(1);
+    elHzTarget.textContent = "목표 " + targetHz.toFixed(1) + " (" + loHz.toFixed(1) + "~" + hiHz.toFixed(1) + ")";
+
+    // green band width, as a % of the bar
+    var okPct = (TOL_CENTS / BAR_SPAN_CENTS) * 50;
+    elHzOk.style.left = (50 - okPct) + "%";
+    elHzOk.style.width = (okPct * 2) + "%";
+
+    // marker position from cents offset, clamped to the bar
+    var clamped = Math.max(-BAR_SPAN_CENTS, Math.min(BAR_SPAN_CENTS, cents));
+    var pct = 50 + (clamped / BAR_SPAN_CENTS) * 50;
+    elHzMarker.style.left = pct + "%";
+    elHzMarker.style.background = color;
+  }
+
+  function updateLoop() {
+    if (!listening) return;
+    analyser.getFloatTimeDomainData(sampleBuf);
+    var res = detectPitch(sampleBuf, audioCtx.sampleRate);
+
+    var now = performance.now();
+    if (res.freq > 0 && res.clarity > 0.5) {
+      lastGoodAt = now;
+      var n = freqToNote(res.freq);
+      lastNote = n;
+
+      if (!smoothInit) { smoothCents = n.cents; smoothInit = true; }
+      else smoothCents = smoothCents * 0.72 + n.cents * 0.28;
+
+      var absC = Math.abs(smoothCents);
+      var inRange = absC <= TOL_CENTS;
+      var color, cls, hzCls, centsCls;
+      if (inRange) {
+        color = "#22C55E"; cls = "note-name in-tune"; hzCls = "hz-now in-tune"; centsCls = "cents-text ok";
+      } else if (absC <= 18) {
+        color = "#F59E0B"; cls = "note-name near"; hzCls = "hz-now near";
+        centsCls = "cents-text " + (smoothCents < 0 ? "flat" : "sharp");
+      } else {
+        color = "#EF4444"; cls = "note-name off"; hzCls = "hz-now off";
+        centsCls = "cents-text " + (smoothCents < 0 ? "flat" : "sharp");
+      }
+
+      elNote.innerHTML = n.name + "<sup>" + n.octave + "</sup>";
+      elNote.className = cls;
+
+      // prominent live Hz reading
+      elHzNow.innerHTML = res.freq.toFixed(1) + '<span class="hz-unit">Hz</span>';
+      elHzNow.className = hzCls;
+
+      // explicit in-range / out-of-range status
+      if (inRange) {
+        elStatus.textContent = "✓ 범위 안 — 맞았습니다";
+        elStatus.className = "status-badge ok";
+      } else if (smoothCents < 0) {
+        elStatus.textContent = "↑ 낮음 — 조여주세요 (" + Math.abs(smoothCents).toFixed(0) + " cents)";
+        elStatus.className = "status-badge low";
+      } else {
+        elStatus.textContent = "↓ 높음 — 풀어주세요 (" + Math.abs(smoothCents).toFixed(0) + " cents)";
+        elStatus.className = "status-badge high";
+      }
+
+      updateHzRange(res.freq, n.exactFreq, smoothCents, color);
+
+      var st = nearestString(n.midi);
+      if (st) {
+        elHint.innerHTML = "<b>" + st.label.slice(0, 1) + "번 줄</b> · " + st.label.slice(1) + "음";
+        if (absC <= 5) tunedFlags[st.midi] = true;
+        renderStrings(st.midi, absC <= 5);
+      } else {
+        elHint.textContent = "표준 튜닝 줄과 멀어요";
+        renderStrings(null, false);
+      }
+
+      var sign = smoothCents > 0 ? "+" : "";
+      elCents.textContent = sign + smoothCents.toFixed(0) + " cents " +
+        (absC <= 5 ? "· 맞았어요 ✓" : (smoothCents < 0 ? "· 낮음 (조여주세요)" : "· 높음 (풀어주세요)"));
+      elCents.className = centsCls;
+      setNeedle(smoothCents, color);
+
+    } else if (now - lastGoodAt > 900) {
+      // signal gone quiet for a while -> idle out
+      if (lastNote !== null) { resetDisplay(); lastNote = null; }
+    }
+
+    rafId = requestAnimationFrame(updateLoop);
+  }
+
+  function stopListening() {
+    listening = false;
+    if (rafId) cancelAnimationFrame(rafId);
+    rafId = null;
+    if (sourceNode) { try { sourceNode.disconnect(); } catch (e) {} sourceNode = null; }
+    if (micStream) { micStream.getTracks().forEach(function (t) { t.stop(); }); micStream = null; }
+    elMicBtn.textContent = "마이크 켜고 튜닝 시작";
+    elMicBtn.classList.remove("listening");
+    resetDisplay();
+  }
+
+  function showMicError(msg) {
+    elMicErr.innerHTML = msg;
+    elMicErr.classList.add("show");
+  }
+
+  function startListening() {
+    elMicErr.classList.remove("show");
+
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      showMicError("<b>마이크를 쓸 수 없습니다.</b><br>이 앱은 <b>https 주소</b>로 열어야 마이크가 동작합니다. 파일을 직접 열거나 http로 접속하면 브라우저가 마이크를 차단해요. GitHub Pages 주소로 접속해 주세요.");
+      return;
+    }
+
+    var ctx = ensureAudio();
+    navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: false,
+        noiseSuppression: false,
+        autoGainControl: false,
+      }
+    }).then(function (stream) {
+      micStream = stream;
+      sourceNode = ctx.createMediaStreamSource(stream);
+      analyser = ctx.createAnalyser();
+      analyser.fftSize = 4096;
+      sampleBuf = new Float32Array(analyser.fftSize);
+      sourceNode.connect(analyser);
+
+      listening = true;
+      lastGoodAt = performance.now();
+      elMicBtn.textContent = "튜닝 중지";
+      elMicBtn.classList.add("listening");
+      elStatus.textContent = "듣는 중… 줄을 튕겨보세요";
+      elStatus.className = "status-badge";
+      updateLoop();
+    }).catch(function (err) {
+      var name = err && err.name ? err.name : "";
+      if (name === "NotAllowedError" || name === "PermissionDeniedError") {
+        showMicError("<b>마이크 권한이 거부되었습니다.</b><br>브라우저 주소창의 자물쇠 아이콘 → 마이크 → 허용으로 바꾼 뒤 다시 시도해 주세요.");
+      } else if (name === "NotFoundError") {
+        showMicError("<b>마이크를 찾을 수 없습니다.</b><br>기기에 마이크가 연결되어 있는지 확인해 주세요.");
+      } else {
+        showMicError("<b>마이크를 열 수 없습니다.</b> (" + name + ")<br>https 주소로 접속했는지 확인해 주세요. 파일을 직접 열면 마이크가 차단됩니다.");
+      }
+    });
+  }
+
+  elMicBtn.addEventListener("click", function () {
+    if (listening) stopListening(); else startListening();
+  });
+
+  // =====================================================
+  // METRONOME
+  // Lookahead scheduler: a setInterval timer only *schedules*
+  // notes onto the audio clock ahead of time, so beat timing
+  // comes from the audio hardware, not from JS timer jitter.
+  // =====================================================
+  var elBpmNum = document.getElementById("bpm-num");
+  var elBpmRange = document.getElementById("bpm-range");
+  var elTempoName = document.getElementById("tempo-name");
+  var elMeter = document.getElementById("meter-select");
+  var elSound = document.getElementById("sound-select");
+  var elBeatDots = document.getElementById("beat-dots");
+  var elPlayBtn = document.getElementById("play-btn");
+  var elTapBtn = document.getElementById("tap-btn");
+
+  var bpm = 90;
+  var beatsPerBar = 4;
+  var soundType = "click";
+  var isPlaying = false;
+  var currentBeat = 0;
+  var nextNoteTime = 0;
+  var schedulerHandle = null;
+  var LOOKAHEAD_MS = 25;
+  var SCHEDULE_AHEAD = 0.12; // seconds
+  var beatQueue = [];
+  var scheduledLog = []; // for tests
+
+  function tempoName(b) {
+    if (b < 60) return "Largo (매우 느리게)";
+    if (b < 76) return "Adagio (느리게)";
+    if (b < 108) return "Andante (걷는 속도)";
+    if (b < 120) return "Moderato (보통)";
+    if (b < 156) return "Allegro (빠르게)";
+    if (b < 200) return "Vivace (매우 빠르게)";
+    return "Presto (아주 빠르게)";
+  }
+
+  function renderBeatDots(activeIdx) {
+    var html = "";
+    for (var i = 0; i < beatsPerBar; i++) {
+      var cls = "beat-dot" + (i === 0 ? " accent" : "") + (i === activeIdx ? " hit" : "");
+      html += '<div class="' + cls + '"></div>';
+    }
+    elBeatDots.innerHTML = html;
+  }
+
+  function setBpm(v) {
+    bpm = Math.max(40, Math.min(240, Math.round(v)));
+    elBpmNum.textContent = bpm;
+    elBpmRange.value = bpm;
+    elTempoName.textContent = tempoName(bpm);
+  }
+
+  elBpmRange.addEventListener("input", function () { setBpm(Number(elBpmRange.value)); });
+  document.querySelectorAll(".bpm-btn").forEach(function (b) {
+    b.addEventListener("click", function () {
+      setBpm(bpm + Number(b.getAttribute("data-delta")));
+    });
+  });
+  elMeter.addEventListener("change", function () {
+    beatsPerBar = Number(elMeter.value);
+    currentBeat = 0;
+    renderBeatDots(-1);
+  });
+  elSound.addEventListener("change", function () { soundType = elSound.value; });
+
+  function scheduleClick(beatIndex, time) {
+    var ctx = audioCtx;
+    if (!ctx) return;
+    var isAccent = (beatIndex === 0);
+    var osc = ctx.createOscillator();
+    var gain = ctx.createGain();
+
+    var freq, dur, type;
+    if (soundType === "wood") {
+      type = "triangle";
+      freq = isAccent ? 1600 : 1100;
+      dur = 0.035;
+    } else if (soundType === "beep") {
+      type = "sine";
+      freq = isAccent ? 1200 : 800;
+      dur = 0.06;
+    } else { // click
+      type = "square";
+      freq = isAccent ? 2000 : 1400;
+      dur = 0.022;
+    }
+
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, time);
+    gain.gain.setValueAtTime(0.0001, time);
+    gain.gain.exponentialRampToValueAtTime(isAccent ? 0.55 : 0.32, time + 0.002);
+    gain.gain.exponentialRampToValueAtTime(0.0001, time + dur);
+
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(time);
+    osc.stop(time + dur + 0.02);
+
+    beatQueue.push({ beat: beatIndex, time: time });
+    scheduledLog.push({ beat: beatIndex, time: time });
+    if (scheduledLog.length > 400) scheduledLog.shift();
+  }
+
+  function advanceNote() {
+    var secondsPerBeat = 60.0 / bpm;
+    nextNoteTime += secondsPerBeat;
+    currentBeat = (currentBeat + 1) % beatsPerBar;
+  }
+
+  function scheduler() {
+    if (!audioCtx) return;
+    while (nextNoteTime < audioCtx.currentTime + SCHEDULE_AHEAD) {
+      scheduleClick(currentBeat, nextNoteTime);
+      advanceNote();
+    }
+  }
+
+  // visual beat sync, driven off the audio clock
+  var visualRaf = null;
+  function visualLoop() {
+    if (!isPlaying) return;
+    if (audioCtx) {
+      var now = audioCtx.currentTime;
+      while (beatQueue.length && beatQueue[0].time <= now) {
+        var b = beatQueue.shift();
+        renderBeatDots(b.beat);
+        setTimeout(function () { renderBeatDots(-1); }, 90);
+      }
+    }
+    visualRaf = requestAnimationFrame(visualLoop);
+  }
+
+  function startMetronome() {
+    var ctx = ensureAudio();
+    if (!ctx) { showToast("이 브라우저는 오디오를 지원하지 않아요"); return; }
+    isPlaying = true;
+    currentBeat = 0;
+    beatQueue = [];
+    scheduledLog = [];
+    nextNoteTime = ctx.currentTime + 0.08;
+    schedulerHandle = setInterval(scheduler, LOOKAHEAD_MS);
+    scheduler();
+    visualLoop();
+    elPlayBtn.textContent = "정지";
+    elPlayBtn.classList.add("playing");
+  }
+
+  function stopMetronome() {
+    isPlaying = false;
+    if (schedulerHandle) clearInterval(schedulerHandle);
+    schedulerHandle = null;
+    if (visualRaf) cancelAnimationFrame(visualRaf);
+    visualRaf = null;
+    beatQueue = [];
+    renderBeatDots(-1);
+    elPlayBtn.textContent = "시작";
+    elPlayBtn.classList.remove("playing");
+  }
+
+  elPlayBtn.addEventListener("click", function () {
+    if (isPlaying) stopMetronome(); else startMetronome();
+  });
+
+  // --- tap tempo ---
+  var tapTimes = [];
+  elTapBtn.addEventListener("click", function () {
+    var now = performance.now();
+    if (tapTimes.length && now - tapTimes[tapTimes.length - 1] > 2500) tapTimes = [];
+    tapTimes.push(now);
+    if (tapTimes.length > 6) tapTimes.shift();
+    if (tapTimes.length >= 2) {
+      var intervals = [];
+      for (var i = 1; i < tapTimes.length; i++) intervals.push(tapTimes[i] - tapTimes[i - 1]);
+      var avg = intervals.reduce(function (a, b) { return a + b; }, 0) / intervals.length;
+      var newBpm = 60000 / avg;
+      if (newBpm >= 40 && newBpm <= 240) {
+        setBpm(newBpm);
+        showToast("템포 " + Math.round(newBpm) + " BPM");
+      } else {
+        showToast("범위를 벗어났어요 (40~240)");
+      }
+    } else {
+      showToast("계속 탭하세요…");
+    }
+  });
+
+  // expose for tests
+  window.__metro = {
+    getLog: function () { return scheduledLog.slice(); },
+    isPlaying: function () { return isPlaying; },
+    setBpm: setBpm,
+    getBpm: function () { return bpm; },
+    start: startMetronome,
+    stop: stopMetronome,
+  };
+
+  setBpm(90);
+  renderBeatDots(-1);
+
+  // pause metronome when app goes to background to avoid drift confusion
+  document.addEventListener("visibilitychange", function () {
+    if (document.hidden && isPlaying) stopMetronome();
+  });
+
+  if ("serviceWorker" in navigator) {
+    window.addEventListener("load", function () {
+      navigator.serviceWorker.register("./sw.js").catch(function () {});
+    });
+  }
+})();
+</script>
+</body>
+</html>
