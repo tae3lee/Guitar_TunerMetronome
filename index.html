@@ -476,6 +476,54 @@
   }
 
   var audioCtx = null;
+  // ---- keep the screen awake while tuning or playing ----
+  // Without this the phone dims and locks on its own timer mid-session.
+  // iOS releases the lock whenever the page is backgrounded, so it has to be
+  // re-requested on every return to visible, not just once.
+  var wakeLock = null, wakeWanted = false;
+
+  var wakeNotified = false;
+  function requestWake() {
+    wakeWanted = true;
+    if (!("wakeLock" in navigator)) {
+      // older iOS: nothing we can do in code, so say so once
+      if (!wakeNotified) {
+        wakeNotified = true;
+        showToast("설정 > 디스플레이 > 자동 잠금을 늘려주세요");
+      }
+      return;
+    }
+    if (wakeLock) return;
+    try {
+      navigator.wakeLock.request("screen").then(function (lock) {
+        wakeLock = lock;
+        lock.addEventListener("release", function () { wakeLock = null; });
+        if (!wakeWanted) { releaseWake(); return; }   // stopped while asking
+        if (!wakeNotified) { wakeNotified = true; showToast("🔆 화면이 꺼지지 않도록 유지합니다"); }
+      }).catch(function () {
+        if (!wakeNotified) {
+          wakeNotified = true;
+          showToast("설정 > 디스플레이 > 자동 잠금을 늘려주세요");
+        }
+      });
+    } catch (e) {}
+  }
+  function releaseWake() {
+    wakeWanted = false;
+    if (wakeLock) {
+      try { wakeLock.release(); } catch (e) {}
+      wakeLock = null;
+    }
+  }
+  // called whenever either tool starts or stops
+  function syncWake() {
+    if (listening || isPlaying) requestWake();
+    else releaseWake();
+  }
+  document.addEventListener("visibilitychange", function () {
+    if (!document.hidden && wakeWanted && !wakeLock) requestWake();
+  });
+
   var audioUnlocked = false;
 
   // iOS mutes ordinary Web Audio when the side silent switch is on — which is
@@ -779,6 +827,7 @@
     filterStep: function (cents) { return trace.push(cents); },
     filterReset: function () { trace.reset(); },
     getDiag: function () { return diag; },
+    wakeState: function () { return { wanted: wakeWanted, held: !!wakeLock, supported: ("wakeLock" in navigator) }; },
     drawScope: function () { drawScope(); },
     setAuto: function (v) { autoMode = v; syncAutoUI(); },
     selectString: function (m) { selectString(m); },
@@ -1349,6 +1398,7 @@
     elMicBtn.textContent = "마이크 켜고 튜닝 시작";
     elMicBtn.classList.remove("listening");
     elLevelFill.style.width = "0%";
+    syncWake();
     clearTrace();
     resetReadout();
     drawScope();
@@ -1379,6 +1429,7 @@
       elMicBtn.textContent = "튜닝 중지";
       elMicBtn.classList.add("listening");
       elStatusLine.textContent = "듣는 중… 줄을 튕겨보세요";
+      syncWake();
       resizeScope();
       updateLoop();
     }).catch(function (err) {
@@ -1735,6 +1786,7 @@
       if (schedulerHandle) clearInterval(schedulerHandle);
       schedulerHandle = setInterval(scheduler, LOOKAHEAD_MS);
       scheduler(); visualLoop();
+      syncWake();
     });
   }
   function stopMetronome() {
@@ -1745,6 +1797,7 @@
     visualRaf = null;
     stepQueue = []; paintPlayhead(-1);
     elPlayBtn.textContent = "시작"; elPlayBtn.classList.remove("playing");
+    syncWake();
   }
   elPlayBtn.addEventListener("click", function () { if (isPlaying) stopMetronome(); else startMetronome(); });
 
