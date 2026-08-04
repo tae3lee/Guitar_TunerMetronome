@@ -63,6 +63,10 @@
     display: flex; align-items: center; justify-content: space-between;
     padding: 0 16px 7px; gap: 10px;
   }
+  .ver {
+    font-size: 10px; font-weight: 800; letter-spacing: 0;
+    color: #6C7386; margin-left: 4px; vertical-align: 1px;
+  }
   .tuning-name {
     font-size: 13px; font-weight: 700; letter-spacing: 1px;
     color: var(--text-dim); text-transform: uppercase;
@@ -294,6 +298,103 @@
     font-size: 14px; font-weight: 700; cursor: pointer;
   }
 
+  /* ---------- landscape: two columns ----------
+     Portrait stacks everything vertically, which overflows by ~250px when the
+     phone is turned sideways while ~370px of width sits unused. Sideways the
+     scope / drum grid take the wide left side and controls stack on the right. */
+  @media (orientation: landscape) and (max-height: 600px) {
+    #app { max-width: 100%; padding-left: 8px; padding-right: 8px;
+           padding-bottom: calc(env(safe-area-inset-bottom) + 4px); }
+    .tabs { margin: 6px 6px 8px; padding: 3px; }
+    .tab { padding: 7px 8px; font-size: 13px; }
+    .card { margin: 0 0 6px; padding: 9px; }
+    .mic-btn { margin: 0; padding: 12px; }
+    .play-btn { margin: 0 0 4px; padding: 11px; }
+    .tap-btn { margin: 0; }
+
+    /* must be .active, otherwise this ID rule beats .panel{display:none}
+       and BOTH panels render at once */
+    #panel-tuner.active {
+      display: grid;
+      grid-template-columns: 1fr 292px;
+      column-gap: 12px;
+      align-content: start;
+      padding: 0 6px;
+    }
+    #panel-tuner > .tuner-header { grid-column: 1 / -1; grid-row: 1; padding: 0 4px 6px; }
+    #panel-tuner > .err-box { grid-column: 1 / -1; grid-row: 2; margin: 0 0 6px; }
+    #panel-tuner > .scope-wrap { grid-column: 1; grid-row: 3 / span 5; }
+    #panel-tuner > .readout { grid-column: 2; grid-row: 3; padding: 0 0 2px; gap: 12px; }
+    #panel-tuner > .status-line { grid-column: 2; grid-row: 4; padding: 0 0 6px; }
+    /* 6 pegs as 2 rows of 3 rather than 3 rows of 2 — saves ~40px of height,
+       which is what pushed the right column off the bottom of the screen */
+    #panel-tuner > .headstock { grid-column: 2; grid-row: 5; padding: 0 0 6px;
+                                grid-template-columns: 1fr; gap: 6px; }
+    #panel-tuner > .headstock > div:nth-child(2) { display: none; }
+    #panel-tuner > .card { grid-column: 2; grid-row: 6; }
+    #panel-tuner > .mic-btn { grid-column: 2; grid-row: 7; }
+    .peg-col { flex-direction: row; gap: 6px; }
+    .peg { flex: 1; height: 32px; font-size: 14px; }
+    .peg small { font-size: 9px; }
+    .readout .hz { font-size: 19px; }
+    .readout .cents { font-size: 13px; min-width: 78px; }
+    .status-line { font-size: 11.5px; min-height: 16px; }
+    .hint { display: none; }
+
+    #panel-metro.active {
+      display: grid;
+      grid-template-columns: 1fr 250px;
+      column-gap: 10px;
+      align-content: start;
+      padding: 0 6px;
+    }
+    #panel-metro > .card:nth-of-type(1) { grid-column: 1; grid-row: 1 / span 4; }
+    #panel-metro > .card:nth-of-type(2) { grid-column: 2; grid-row: 1; }
+    #panel-metro > .card:nth-of-type(3) { grid-column: 2; grid-row: 2; }
+    #panel-metro > .play-btn { grid-column: 2; grid-row: 3; }
+    #panel-metro > .sound-note { grid-column: 2; grid-row: 4; padding: 2px 2px 0; font-size: 9px; line-height: 1.3; }
+    .bpm-num { font-size: 34px; }
+    .bpm-unit { font-size: 11px; margin-top: 0; }
+    .tempo-name { font-size: 10.5px; min-height: 14px; }
+    .bpm-side .bpm-btn { width: 46px; padding: 6px 0; font-size: 13px; }
+    .dcell { height: 26px; }
+    .preset-btn { padding: 7px 2px; font-size: 11px; }
+    .opt-label { font-size: 10px; }
+    /* "16비트" was clipping in an equal-width column */
+    #panel-metro .opt-row { gap: 6px; }
+    #panel-metro .opt:nth-child(1) { flex: 0 0 58px; }
+    #panel-metro .opt:nth-child(2) { flex: 1 1 auto; }
+    #panel-metro .opt:nth-child(3) { flex: 0 0 62px; }
+    #panel-metro .opt select { padding: 6px 4px; font-size: 12.5px; }
+  }
+
+  /* Landscape on a shorter viewport (Safari showing its bars) */
+  @media (orientation: landscape) and (max-height: 380px) {
+    .tabs { margin: 4px 6px 6px; }
+    .tab { padding: 6px 8px; font-size: 12.5px; }
+    .card { padding: 8px; margin: 0 0 6px; }
+    .peg { height: 28px; font-size: 13px; }
+    .readout { gap: 10px; }
+    .readout .hz { font-size: 17px; }
+    .mic-btn { padding: 10px; font-size: 14px; }
+    .play-btn { padding: 10px; font-size: 15px; }
+    .sound-note { display: none; }
+    .bpm-num { font-size: 28px; }
+    .bpm-side .bpm-btn { width: 42px; padding: 5px 0; font-size: 12px; }
+    .dcell { height: 21px; }
+    .dhead { font-size: 8.5px; }
+    .preset-btn { padding: 6px 2px; font-size: 10.5px; }
+    #panel-tuner.active > .status-line { display: none; }
+    /* settings side by side instead of stacked — halves the card's height */
+    #panel-tuner.active > .card {
+      display: grid; grid-template-columns: 1fr auto;
+      gap: 6px 10px; align-items: center;
+    }
+    #panel-tuner.active > .card > .level-row { grid-column: 1; }
+    #panel-tuner.active > .card > .row-between { grid-column: 2; gap: 6px; }
+    #panel-tuner.active > .card > .row-between .label-sm { font-size: 10px; }
+  }
+
   /* Short phones (iPhone SE, or any phone with browser chrome eating height):
      claw back enough vertical space that neither tab needs to scroll. */
   @media (max-height: 700px) {
@@ -334,7 +435,7 @@
   <section class="panel active" id="panel-tuner">
 
     <div class="tuner-header">
-      <span class="tuning-name">표준 튜닝 · EADGBE</span>
+      <span class="tuning-name">표준 튜닝 · EADGBE <b class="ver">v17</b></span>
       <button class="auto-toggle on" id="auto-btn"><span class="auto-dot"></span>AUTO</button>
     </div>
 
@@ -456,7 +557,7 @@
     </div>
 
     <button class="play-btn" id="play-btn">시작</button>
-    <div class="sound-note">소리가 안 들리면 아이폰 옆면의 <b>무음(벨) 스위치</b>와 볼륨을 확인하세요. 드럼 이름을 탭하면 그 소리만 따로 들어볼 수 있어요.</div>
+    <div class="sound-note"><b class="ver" style="margin:0 6px 0 0;">v17</b>소리가 안 들리면 아이폰 옆면의 <b>무음(벨) 스위치</b>와 볼륨을 확인하세요. 드럼 이름을 탭하면 그 소리만 따로 들어볼 수 있어요.</div>
   </section>
 
 </div>
@@ -1058,12 +1159,14 @@
     if (!wrap || !app || !mic) return SCOPE_H;
     var wr = wrap.getBoundingClientRect();
     if (wr.width === 0) return SCOPE_H;              // panel hidden
-    var ar = app.getBoundingClientRect();
-    var mr = mic.getBoundingClientRect();
-    var above = wr.top - ar.top;                     // tabs + header
-    var below = mr.bottom - wr.bottom;               // readout … mic button
-    var avail = (window.innerHeight || 800) - above - below - 16;
-    return Math.max(150, Math.min(300, Math.round(avail)));
+    var landscape = window.innerWidth > window.innerHeight;
+    var above = wr.top;                              // from the viewport top
+    // sideways nothing sits under the scope, but the app still has bottom
+    // padding — leaving that out overflowed the screen by ~11px
+    var below = landscape ? 20
+              : (mic.getBoundingClientRect().bottom - wr.bottom);
+    var avail = (window.innerHeight || 800) - above - below - 18;
+    return Math.max(130, Math.min(landscape ? 420 : 300, Math.round(avail)));
   }
 
   var samples = [];  // {t, hz, cents}
@@ -1146,6 +1249,10 @@
     drawScope();
   }
   window.addEventListener("resize", resizeScope);
+  window.addEventListener("orientationchange", function () {
+    setTimeout(resizeScope, 120);   // let the new layout settle first
+    setTimeout(resizeScope, 400);
+  });
 
   function pushSample(hz, cents) {
     var now = performance.now();
